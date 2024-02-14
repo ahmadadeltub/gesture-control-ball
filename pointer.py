@@ -1,0 +1,89 @@
+import cv2
+import mediapipe as mp
+import pyautogui
+import time
+
+# Initialize MediaPipe Hands.
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize the webcam.
+cap = cv2.VideoCapture(0)
+
+last_command_time = 0
+command_interval = 2  # Time interval between commands in seconds.
+
+def is_closed_hand(hand_landmarks):
+    wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
+    fingertips = [
+        hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP],
+        hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP],
+        hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP],
+        hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
+    ]
+    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+    for fingertip in fingertips:
+        if abs(fingertip.x - wrist.x) > abs(thumb_tip.x - wrist.x) or \
+           abs(fingertip.y - wrist.y) > abs(thumb_tip.y - wrist.y):
+            return False
+    return True
+
+while True:
+    success, image = cap.read()
+    if not success:
+        print("Ignoring empty camera frame.")
+        continue
+
+    image = cv2.resize(image, (1000, 800))
+    image = cv2.flip(image, 1)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    results = hands.process(image_rgb)
+
+    current_time = time.time()
+    if results.multi_hand_landmarks:
+        for hand_idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+            hand_label = results.multi_handedness[hand_idx].classification[0].label
+            color = (0, 255, 0) if hand_label == "Right" else (255, 0, 0)
+            
+            for landmark in hand_landmarks.landmark:
+                x = int(landmark.x * image.shape[1])
+                y = int(landmark.y * image.shape[0])
+                cv2.circle(image, (x, y), 5, color, -1)
+            
+            for connection in mp_hands.HAND_CONNECTIONS:
+                start_idx = connection[0]
+                end_idx = connection[1]
+                start_point = hand_landmarks.landmark[start_idx]
+                end_point = hand_landmarks.landmark[end_idx]
+                start_x, start_y = int(start_point.x * image.shape[1]), int(start_point.y * image.shape[0])
+                end_x, end_y = int(end_point.x * image.shape[1]), int(end_point.y * image.shape[0])
+                cv2.line(image, (start_x, start_y), (end_x, end_y), color, 2)
+
+            # Draw a red dot at the index fingertip position for the cursor.
+            index_fingertip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+            cursor_x = int(index_fingertip.x * image.shape[1])
+            cursor_y = int(index_fingertip.y * image.shape[0])
+            cv2.circle(image, (cursor_x, cursor_y), 10, (0, 0, 255), -1)  # Red dot as the cursor
+
+            if is_closed_hand(hand_landmarks):
+                if (current_time - last_command_time) > command_interval:
+                    pyautogui.press('esc')
+                    last_command_time = current_time
+            else:
+                if hand_label == "Right" and (current_time - last_command_time) > command_interval:
+                    pyautogui.press('right')
+                    last_command_time = current_time
+                elif hand_label == "Left" and (current_time - last_command_time) > command_interval:
+                    pyautogui.press('left')
+                    last_command_time = current_time
+
+
+
+    cv2.imshow('Camera Feed with Gesture Dots', image)
+
+    if cv2.waitKey(5) & 0xFF == ord('q') or cv2.getWindowProperty('Camera Feed with Gesture Dots', cv2.WND_PROP_VISIBLE) < 1:
+        break
+
+cap.release()
+cv2.destroyAllWindows()
