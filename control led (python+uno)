@@ -1,0 +1,95 @@
+python code :
+import serial
+# Open serial port (Replace 'COM3' with your Arduino's port)
+arduino = serial.Serial('COM8', 9600)
+
+import cv2
+import mediapipe as mp
+
+# Initialize MediaPipe Hands model
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(static_image_mode=False,
+                       max_num_hands=1,
+                       min_detection_confidence=0.5,
+                       min_tracking_confidence=0.5)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize the webcam for video capture
+cap = cv2.VideoCapture(0)
+
+# Define LED colors
+LEFT_HAND_COLOR = (0, 255, 0)  # Green color for left hand
+RIGHT_HAND_COLOR = (0, 0, 255)  # Red color for right hand
+led_color = RIGHT_HAND_COLOR  # Initial LED color is red for right hand
+
+# Main loop for capturing and processing video frames
+while cap.isOpened():
+    # Read a frame from the webcam
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to capture frame from webcam.")
+        break
+
+    # Flip the frame horizontally to correct mirroring
+    frame = cv2.flip(frame, 1)
+
+    # Convert the BGR image to RGB
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Process the image and detect hands
+    results = hands.process(rgb_frame)
+
+    # Draw hand landmarks and connections on the image
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            
+            # Check if it's a left hand or right hand
+            if hand_landmarks.landmark[mp_hands.HandLandmark.WRIST].x < 0.5:
+                led_color = LEFT_HAND_COLOR
+                arduino.write(b'L')  # Send 'L' to turn off the LED (left hand)
+                hand_label = "Left Hand"
+            else:
+                led_color = RIGHT_HAND_COLOR
+                arduino.write(b'R')  # Send 'R' to turn on the LED (right hand)
+                hand_label = "Right Hand"
+            
+            # Add hand label text to the frame
+            cv2.putText(frame, hand_label, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, led_color, 2)
+
+    # Draw LED on the frame (palm)
+    cv2.circle(frame, (int(frame.shape[1] / 2), int(frame.shape[0] / 2)), 20, led_color, -1)
+
+    # Display the processed image with hand landmarks, LED, and hand label
+    cv2.imshow('Hand Gesture Recognition', frame)
+
+    # Check for the 'q' key press to exit the loop
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the webcam and close all OpenCV windows
+cap.release()
+cv2.destroyAllWindows()
+
+
+ardinuo uno code( led connected to pin 8 ) :
+
+
+int ledPin = 8; // LED connected to pin 8
+
+void setup() {
+  pinMode(ledPin, OUTPUT);
+  Serial.begin(9600); // Start serial communication at 9600 baud rate
+}
+
+void loop() {
+  if (Serial.available() > 0) { // Check if data is available to read
+    char command = Serial.read(); // Read the incoming byte
+    if (command == 'R') {
+      digitalWrite(ledPin, HIGH); // Turn LED on
+    } else if (command == 'L') {
+      digitalWrite(ledPin, LOW); // Turn LED off
+    }
+  }
+}
+
